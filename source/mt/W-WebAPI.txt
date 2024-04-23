@@ -1,0 +1,285 @@
+
+. Appendix B - S2 API
+
+~!source/php/base/WebAPI.php~
+<?php
+
+namespace base;
+
+class WebAPI {
+~
+
+~source/php/base/WebAPI.php~
+public $apihost            = "";
+public $username           = "";
+public $password           = "";
+public $accessToken        = "";
+public $accessTokenExpiry  = null;
+public $refreshToken       = "";
+public $refreshTokenExpiry = null;
+~
+
+~source/php/base/WebAPI.php~
+function __construct( $_apihost, $username, $password )
+{
+    $pw_len = strlen( $password );
+
+    //\base\Status( "APIHost: $_apihost; UserName: $username; Password length: $pw_len characters" );
+
+    $this->apihost  = $_apihost;
+    $this->username = $username;
+    $this->password = $password;
+}
+
+~source/php/base/WebAPI.php~
+function login()
+{
+    $endpoint   = "/v1/Authenticate/Login/";
+    $parameters =
+    [
+        "UserName" => $this->username,
+        "Password" => $this->password
+    ];
+
+    $params  = EncodeParameters( $parameters );
+    $empty   = array();
+    $json    = \base\Call( "POST", $this->apihost, $endpoint . "?" . $params, $empty );
+
+    \base\Status( "Calling /v1/Authenticate/Login/" );
+
+    if ( ! $json )
+    {
+        \base\Error( "WebAPI - null returned" );
+
+        return false;
+    }
+    else
+    {
+        $this->updateTokens( json_decode( $json ) );
+
+        return true;
+    }
+}
+~
+
+~source/php/base/WebAPI.php~
+function refreshToken()
+{
+    if ( "" == $this->accessToken )
+    {
+        $this->login();
+    }
+
+    if ( "" != $this->accessToken )
+    {
+        $now = new \DateTimeImmutable();
+
+        if ( $this->accessTokenExpiry <= $now )
+        {
+            $endpoint   = "/v1/Authenticate/RefreshToken/";
+            $parameters =
+            [
+                "AccessToken"  => $this->accessToken,
+                "RefreshToken" => $this->refreshToken
+            ];
+
+            $params = EncodeParameters( $parameters );
+            $empty  = array();
+            $json   = \base\Call( "POST", $this->apihost, $endpoint . "?" . $params, $empty );
+
+            \base\Status( "Calling /v1/Authenticate/RefreshToken/" );
+
+            if ( ! $json )
+            {
+                \base\Error( "WebAPI - null returned" );
+
+                $this->accessToken        = "";
+            }
+            else
+            {
+                $this->updateTokens( json_decode( $json ) );
+            }
+        }
+    }
+
+    return ("" != $this->accessToken);
+}
+~
+
+~source/php/base/WebAPI.php~
+function updateTokens( $obj )
+{
+    if ( !$obj )
+    {
+        \base\Error( "WebAPI - invalid return" );
+    }
+    else
+    {
+        $this->accessToken        = $obj->accessToken;
+        $this->refreshToken       = $obj->refreshToken;
+        $this->accessTokenExpiry  = \DateTimeImmutable::createFromFormat( \DateTimeInterface::ATOM, $obj->accessTokenExpiry  );
+        $this->refreshTokenExpiry = \DateTimeImmutable::createFromFormat( \DateTimeInterface::ATOM, $obj->refreshTokenExpiry );
+    }
+}
+~
+
+~source/php/base/WebAPI.php~
+function call( $method, $endpoint, $body )
+{
+    $this->refreshToken();
+
+    //$this->apihost = "api.optimus.orcoda.dev.test";
+
+    $headers["Accept"         ] = "application/json";
+    $headers["Content-Type"   ] = "application/json";
+    $headers["Authorization"  ] = "Bearer " . $this->accessToken;
+    $headers["Accept-Encoding"] = "gzip, defalte, br";
+    $headers["Connection"     ] = "close";
+
+    $error   = false;
+    $context = CreateStreamContext( $method, $this->apihost, $body, $headers );
+    $json    = file_get_contents( "https://" . $this->apihost . $endpoint, false, $context );
+
+    if ( "HTTP/1.1 200 OK" != $http_response_header[0] )
+    {
+        Status( "Response: " . $http_response_header[0] );
+
+        $error = true;
+    }
+
+    if ( ! StringContains( $http_response_header[0], "20" ) )
+    {
+        \base\Error( "JSON: " . $json );
+
+        $error = true;
+    }
+
+    if ( ! $json )
+    {
+        \base\Error( "WebAPI - null returned" );
+
+        $error = true;
+    }
+    else
+    {
+        $obj = json_decode( $json );
+
+        if ( ! $obj )
+        {
+            \base\Error( "WebAPI - invalid return from: $endpoint?" . EncodeParameters( $parameters ) );
+
+            $error = TRUE;
+        }
+        else
+        if ( StringContains( $obj->status, "Error" ) )
+        {
+            if
+            (
+                StringContains( $json, "is not allocated" )
+                ||
+                StringContains( $json, "fully allocated"  )
+                ||
+                StringContains( $json, "already complete" )
+                ||
+                StringContains( $json, "be in the future" )
+                ||
+                StringContains( $json, "GIS.Com.Data.Bra" )
+                ||
+                StringContains( $json, "Delivery Job"     )
+                ||
+                StringContains( $json, "TTConnote record" )
+                ||
+                StringContains( $json, "not found" )
+            )
+            {
+                \base\Status( "S2 Ignored: " . $json );
+
+                $error = FALSE;
+            }
+            else
+            {
+                \base\Error( "S2 Response: " . $json );
+
+                $error = TRUE;
+            }
+        }
+        else
+        {
+            if ( property_exists( $obj, "errors" ) && (0 == count( $obj->errors )) )
+            {
+                unset( $obj->errors );
+            }
+
+            Status( "S2 Response: " . json_encode( $obj ) );
+        }
+    }
+
+    return $error ? FALSE : $json;
+}
+~
+
+~source/php/base/WebAPI.php~
+function callForm( $method, $apihost, $endpoint, $parameters )
+{
+    $params = EncodeParameters( $parameters );
+
+    $this->refreshToken();
+
+    $headers["Accept"         ] = "application/json";
+    $headers["Content-Type"   ] = "application/x-www-form-urlencoded";
+    $headers["Authorization"  ] = "Bearer " . $this->accessToken;
+    $headers["Accept-Encoding"] = "gzip, defalte, br";
+    $headers["Connection"     ] = "close";
+
+    $error   = false;
+    $context = CreateStreamContext( $method, $apihost, $params, $headers );
+    $json    = file_get_contents( "https://" . $apihost . $endpoint, false, $context );
+
+    if ( "HTTP/1.1 200 OK" != $http_response_header[0] )
+    {
+        Status( "Response: " . $http_response_header[0] );
+
+        $error = true;
+    }
+
+    if ( ! StringContains( $http_response_header[0], "20" ) )
+    {
+        \base\Error( "JSON: " . $json );
+
+        $error = true;
+    }
+
+    if ( ! $json )
+    {
+        \base\Error( "WebAPI - null returned" );
+
+        $error = true;
+    }
+    else
+    {
+        $obj = json_decode( $json );
+
+        if ( ! $obj )
+        {
+            \base\Error( "WebAPI - invalid return from: $endpoint?" . EncodeParameters( $parameters ) );
+
+            $error = TRUE;
+        }
+        else
+        {
+            if ( property_exists( $obj, "errors" ) && (0 == count( $obj->errors )) )
+            {
+                unset( $obj->errors );
+            }
+
+            Status( "S2 Response: " . json_encode( $obj ) );
+        }
+    }
+
+    return $error ? FALSE : $json;
+}
+~
+
+~source/php/base/WebAPI.php~
+}
+~
