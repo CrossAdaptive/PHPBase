@@ -418,7 +418,7 @@ function Stat( $text )
 
 namespace base;
 
-function Status( $text, $level = LOG_INFO )
+function Status( $text, $priority = LOG_INFO )
 {
     global $level;
 
@@ -429,7 +429,7 @@ function Status( $text, $level = LOG_INFO )
 
     if ( defined( "USE_SYSLOG" ) )
     {
-        syslog( $level, $msg );
+        syslog( $priority, $msg );
     }
     else
     {
