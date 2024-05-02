@@ -425,7 +425,7 @@ function Status( $text, $priority = LOG_INFO )
     $l = "";
     for( $i=0; $i < $level; $i++ ) $l .= "+";
 
-    $msg = $l . ' ' . $text . "\n";
+    $msg = $l . ' ' . $text;
 
     if ( defined( "USE_SYSLOG" ) )
     {
@@ -433,7 +433,7 @@ function Status( $text, $priority = LOG_INFO )
     }
     else
     {
-        echo TimeStamp() . $msg;
+        echo TimeStamp() . $msg . "\n";
     }
 }
 ~
