@@ -502,7 +502,7 @@ function __construct( $apihost, $username, $password, $content_type )
 {
     $combined = trim( $username ) . ":" . trim( $password );
 
-    $this->apihost     = $_apihost;
+    $this->apihost     = $apihost;
     $this->digest      = base64_encode( $combined );
     $this->contentType = $content_type;
 }
