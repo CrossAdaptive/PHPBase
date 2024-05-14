@@ -515,7 +515,6 @@ function call( $method, $endpoint, $multi, $headers = array() )
         $headers["Content-Type"] = $this->contentType;
     }
     $headers["Authorization"  ] = "Basic " . $this->digest;
-    $headers["Accept-Encoding"] = "gzip, defalte, br";
     $headers["Connection"     ] = "close";
 
     if ( is_array( $multi ) ) $multi = EncodeParameters( $multi );
