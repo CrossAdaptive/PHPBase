@@ -1,0 +1,48 @@
+
+. Appendix B - S2 API
+
+~!source/php/base/BasicAPI.php~
+<?php
+
+namespace base;
+
+class BaseAPI {
+~
+
+~source/php/base/BasicAPI.php~
+public $apihost     = "";
+public $digest      = "";
+public $contentType = "";
+~
+
+~source/php/base/BasicAPI.php~
+function __construct( $apihost, $username, $password, $content_type )
+{
+    $combined = trim( $username ) . ":" . trim( $password );
+
+    $this->apihost     = $_apihost;
+    $this->digest      = base64_encode( $combined );
+    $this->contentType = $content_type;
+}
+
+~source/php/base/BasicAPI.php~
+function call( $method, $endpoint, $multi, $headers = array() )
+{
+    $headers["Content-Type"   ] = $this->contentType;
+    $headers["Authorization"  ] = "Basic " . $this->digest;
+    $headers["Accept-Encoding"] = "gzip, defalte, br";
+    $headers["Connection"     ] = "close";
+
+    if ( is_array( $multi ) ) $multi = EncodeParameters( $multi );
+
+    $error   = false;
+    $context = CreateStreamContext( $method, $this->apihost, $multi, $headers );
+    $json    = file_get_contents( "https://" . $this->apihost . $endpoint, false, $context );
+
+    return $json;
+}
+~
+
+~source/php/base/BasicAPI.php~
+}
+~
