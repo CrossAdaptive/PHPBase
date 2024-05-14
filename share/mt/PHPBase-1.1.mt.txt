@@ -498,7 +498,7 @@ public $contentType = "";
 ~
 
 ~source/php/base/BasicAPI.php~
-function __construct( $apihost, $username, $password, $content_type )
+function __construct( $apihost, $username, $password, $content_type = null )
 {
     $combined = trim( $username ) . ":" . trim( $password );
 
@@ -510,7 +510,10 @@ function __construct( $apihost, $username, $password, $content_type )
 ~source/php/base/BasicAPI.php~
 function call( $method, $endpoint, $multi, $headers = array() )
 {
-    $headers["Content-Type"   ] = $this->contentType;
+    if ( $this->contentType )
+    {
+        $headers["Content-Type"] = $this->contentType;
+    }
     $headers["Authorization"  ] = "Basic " . $this->digest;
     $headers["Accept-Encoding"] = "gzip, defalte, br";
     $headers["Connection"     ] = "close";
