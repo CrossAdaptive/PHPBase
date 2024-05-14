@@ -9,6 +9,7 @@ PHPBase is a library of PHP functions that are useful for PHP scripts.
 
 ~source/php/libbase.php~
 include( "base/Abort.php"                     );
+include( "base/BasicAPI.php"                  );
 include( "base/Call.php"                      );
 include( "base/Configuration.php"             );
 include( "base/CreateStreamContext.php"       );
