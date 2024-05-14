@@ -1,5 +1,5 @@
 
-. Appendix B - S2 API
+. Appendix W - Web API
 
 ~!source/php/base/WebAPI.php~
 <?php
