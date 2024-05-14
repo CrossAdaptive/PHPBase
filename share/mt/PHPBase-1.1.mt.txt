@@ -1,0 +1,814 @@
+
+- PHPBase
+
+PHPBase is a library of PHP functions that are useful for PHP scripts.
+
+~!source/php/libbase.php~
+<?php
+~
+
+~source/php/libbase.php~
+include( "base/Abort.php"                     );
+include( "base/Call.php"                      );
+include( "base/Configuration.php"             );
+include( "base/CreateStreamContext.php"       );
+include( "base/DateParseToTimeStamp.php"      );
+include( "base/EncodeParameters.php"          );
+include( "base/Error.php"                     );
+include( "base/JSONDecode.php"                );
+include( "base/PrintLine.php"                 );
+include( "base/PropertyGet.php"               );
+include( "base/Stat.php"                      );
+include( "base/Status.php"                    );
+include( "base/String.php"                    );
+include( "base/SingleResponseFieldOrNull.php" );
+include( "base/Timestamp.php"                 );
+include( "base/WebAPI.php"                    );
+~
+
+,,  Abort
+
+~!source/php/base/Abort.php~
+<?php
+
+namespace base;
+
+function Abort( $text )
+{
+    PrintLine( $text );
+    exit -1;
+}
+~
+
+\newpage
+
+,,  Call
+
+~!source/php/base/Call.php~
+<?php
+
+namespace base;
+
+\ini_set( 'allow_url_fopen',          1 );
+\ini_set( 'default_socket_timeout', 900 );
+
+function Call( $method, $host, $endpoint, $parameters = array(), $headers = array() )
+{
+    $params = EncodeParameters( $parameters );
+
+    $bits = explode( "&Password", $endpoint );
+
+    $p = (count( $bits ) > 1) ? $bits[0] . "&Password=<Redacted>&..." : $bits[0];
+
+    $headers["Content-type"] = "application/x-www-form-urlencoded";
+
+    $port = "https:";
+
+    if ( "dev.esolution.net.au" == $host ) $port = "http:";
+
+    $json = null;
+    switch ( $method )
+    {
+    case "POST":
+        $url     = $port . "//" . $host . $endpoint;
+        $context = CreateStreamContext( $method, $host, $params, $headers );
+        $json    = file_get_contents( $url, false, $context );
+        break;
+
+    case "GET":
+    default:
+        $url     = $port . "//" . $host . $endpoint . "?" . $params;
+        $context = CreateStreamContext( $method, $host, $params, $headers );
+        $json    = file_get_contents( $url, false, $context );
+        break;
+    }
+
+    if ( "HTTP/1.1 200 OK" != $http_response_header[0] )
+    {
+        Status( "Response: " . $http_response_header[0] );
+    }
+
+    if ( ! StringContains( $http_response_header[0], "20" ) )
+    {
+        $copy = $json;
+        $json = FALSE;
+
+        Status( "Raw request:  $url"  );
+        Status( "Raw response: $copy" );
+
+        if ( $copy )
+        {
+            $obj = json_decode( $copy );
+
+            if ( $obj && $obj->message )
+            {
+                Error( $obj->message );
+            }
+        }
+    }
+
+    if ( FALSE === $json )
+    {
+        Error( "file_get_contents, returned FALSE for: " . $host . $endpoint . "?" . $params );
+    }
+    return $json;
+}
+~
+
+\newpage
+
+,,  Configuration
+
+~!source/php/base/Configuration.php~
+<?php
+
+namespace base;
+
+function Configuration( $config_file, $required )
+{
+    $json = file_get_contents( $config_file );
+
+    if ( ! $json )
+    {
+        Abort( "Could not read configuration file: " . $config_file );
+    }
+    else
+    {
+        $config = json_decode( $json );
+
+        if ( ! $config )
+        {
+            Abort( "Could not parse configuration file: " . $config_file );
+        }
+        else
+        {
+            foreach ( $required as $name )
+            {
+                if ( ! property_exists( $config, $name ) )
+                {
+                    Abort( "Configuration does not include: " . $name );
+                }
+            }
+        }
+
+        Status( "Successfully read configuration file: " . $config_file );
+
+        return $config;
+    }
+}
+~
+
+\newpage
+
+,,  Create Stream Context
+
+~!source/php/base/CreateStreamContext.php~
+<?php
+
+namespace base;
+
+function CreateStreamContext( $method, $host, $content, $headers = array() )
+{
+    $verify_server = false;// (-1 === strpos( $host, ".test" ));
+
+    $NL = "\r\n";
+
+    $header_content = "";
+
+    foreach( $headers as $header => $value )
+    {
+        $header_content .= $header . ": " . $value . $NL;
+    }
+
+    $header_content .= "Content-Length: " . strlen( $content ) . $NL;
+
+    return stream_context_create
+    (
+        array
+        (
+            "http" => array
+            (
+                "method"        => $method,
+                "header"        => $header_content,
+                "content"       => $content,
+                "ignore_errors" => true,
+                "timeout"       => (float)120.0,
+            ),
+
+            "ssl" => array
+            (
+                "allow_self_signed" => !$verify_server,
+                "verify_peer"       =>  $verify_server,
+                "verify_peer_name"  =>  $verify_server,
+            ),
+        )
+    );
+}
+~
+
+\newpage
+
+,,  DateParse
+
+~!source/php/base/DateParseToTimeStamp.php~
+<?php
+
+namespace base;
+
+function DateParseToTimeStamp( $text )
+{
+    $dt = \DateTimeImmutable::createFromFormat( "Y-m-d H:i:s", $text );
+
+    return $dt->getTimestamp();
+}
+~
+
+\newpage
+
+,,  Encode
+
+~!source/php/base/EncodeParameters.php~
+<?php
+
+namespace base;
+
+function EncodeParameters( $parameters )
+{
+    $params = "";
+    foreach ($parameters as $key => $value)
+    {
+        $params .= '&' . urlencode($key) . '=' . urlencode( $value );
+    }
+    return substr( $params, 1 )
+    ;
+}
+~
+
+\newpage
+
+,,  Error
+
+~!source/php/base/Error.php~
+<?php
+
+namespace base;
+
+function Error( $text )
+{
+    Status( "ERROR: " . $text, LOG_ERR );
+}
+~
+
+\newpage
+
+,,  Property Get
+
+~!source/php/base/PropertyGet.php~
+<?php
+
+namespace base;
+
+function PropertyGet( $object, $field, $default = "" )
+{
+    return property_exists( $object, $field ) ? $object->{$field} : $default;
+}
+~
+
+\newpage
+
+,,  JSONDecode
+
+~!source/php/base/JSONDecode.php~
+<?php
+
+namespace base;
+
+function JSONDecode( $json )
+{
+    $obj = null;
+
+    if ( !$json )
+    {
+        \base\Error( "JSONDecode: null return" );
+    }
+    else
+    if ( null === ($obj = json_decode( $json )) )
+    {
+        \base\Error( "JSONDecode: could not decode JSON: $json" );
+    }
+    else
+    if ( is_array( $obj ) )
+    {
+        $response
+        =
+        [
+            "status"  => "OK",
+            "error"   => "",
+            "results" => $obj
+        ];
+
+        $obj = (object) $response;
+    }
+    else
+    if ( is_object( $obj ) && !property_exists( $obj, "URL" ) )
+    {
+        $response
+        =
+        [
+            "status"  => "OK",
+            "error"   => "",
+            "results" => [$obj]
+        ];
+
+        $obj = (object) $response;
+    }
+    else
+    if ( property_exists( $obj, "status" ) && ("ERROR" == $obj->status) )
+    {
+        \base\Error( "JSONDecode: API Error: $obj->URL: $obj->error" );
+    }
+    else
+    if ( property_exists( $obj, "results" ) && !is_array( $obj->results ) )
+    {
+        \base\Error( "JSONDecode: Results not array as expected: " . $obj->error );
+        var_dump( $obj );
+    }
+    return $obj;
+}
+~
+
+\newpage
+
+,,  PrintLine
+
+~!source/php/base/PrintLine.php~
+<?php
+
+namespace base;
+
+function PrintLine( $text )
+{
+    echo $text . "\n";
+}
+~
+
+\newpage
+
+,,  PrintLine
+
+~!source/php/base/SingleResponseFieldOrNull.php~
+<?php
+
+namespace base;
+
+function SingleResponseFieldOrNull( $response, $member )
+{
+    if ( !is_object( $response ) || !property_exists( $response, "results" ) )
+    {
+        return null;
+    }
+    else
+    if ( !is_array( $response->results ) )
+    {
+        return null;
+    }
+    else
+    if ( 1 != count( $response->results ) )
+    {
+        return null;
+    }
+    else
+    if ( !property_exists( $response->results[0], $member ) )
+    {
+        return null;
+    }
+    else
+    {
+        return $response->results[0]->{$member};
+    }
+}
+~
+
+\newpage
+
+,,  Stat
+
+~!source/php/base/Stat.php~
+<?php
+
+namespace base;
+
+function Stat( $text )
+{
+    global $level;
+
+    $l = "";
+    for( $i=0; $i < $level; $i++ ) $l .= "+";
+
+    echo TimeStamp() . $l . ' ' . $text;
+}
+~
+
+\newpage
+
+,,  Status
+
+~!source/php/base/Status.php~
+<?php
+
+namespace base;
+
+function Status( $text, $priority = LOG_INFO )
+{
+    global $level;
+
+    $l = "";
+    for( $i=0; $i < $level; $i++ ) $l .= "+";
+
+    $msg = $l . ' ' . $text;
+
+    if ( defined( "USE_SYSLOG" ) )
+    {
+        syslog( $priority, $msg );
+    }
+    else
+    {
+        echo TimeStamp() . $msg . "\n";
+    }
+}
+~
+
+\newpage
+
+,,  String Contains
+
+~!source/php/base/String.php~
+<?php
+
+namespace base;
+
+function StringContains( $haystack, $needle )
+{
+    return (false !== strpos( $haystack, $needle ));
+}
+
+function StringStartsWith( $haystack, $needle )
+{
+    return (0 == strlen($needle)) || (0 === strpos( $haystack, $needle ));
+}
+
+function StringEndsWith( $haystack, $needle )
+{
+    $expected = strlen( $haystack ) - strlen( $needle );
+
+    return (0 == strlen($needle)) || ($expected === strrpos( $haystack, $needle ));
+}
+~
+
+\newpage
+
+,,  Timestamp
+
+~!source/php/base/Timestamp.php~
+<?php
+
+namespace base;
+
+function Timestamp()
+{
+    return date( 'c' ); // date('Y-m-d H:i:s'); DRB
+}
+~
+
+. Appendix B - S2 API
+
+~!source/php/base/BasicAPI.php~
+<?php
+
+namespace base;
+
+class BaseAPI {
+~
+
+~source/php/base/BasicAPI.php~
+public $apihost     = "";
+public $digest      = "";
+public $contentType = "";
+~
+
+~source/php/base/BasicAPI.php~
+function __construct( $apihost, $username, $password, $content_type )
+{
+    $combined = trim( $username ) . ":" . trim( $password );
+
+    $this->apihost     = $_apihost;
+    $this->digest      = base64_encode( $combined );
+    $this->contentType = $content_type;
+}
+
+~source/php/base/BasicAPI.php~
+function call( $method, $endpoint, $multi, $headers = array() )
+{
+    $headers["Content-Type"   ] = $this->contentType;
+    $headers["Authorization"  ] = "Basic " . $this->digest;
+    $headers["Accept-Encoding"] = "gzip, defalte, br";
+    $headers["Connection"     ] = "close";
+
+    if ( is_array( $multi ) ) $multi = EncodeParameters( $multi );
+
+    $error   = false;
+    $context = CreateStreamContext( $method, $this->apihost, $multi, $headers );
+    $json    = file_get_contents( "https://" . $this->apihost . $endpoint, false, $context );
+
+    return $json;
+}
+~
+
+~source/php/base/BasicAPI.php~
+}
+~
+
+. Appendix W - Web API
+
+~!source/php/base/WebAPI.php~
+<?php
+
+namespace base;
+
+class WebAPI {
+~
+
+~source/php/base/WebAPI.php~
+public $apihost            = "";
+public $username           = "";
+public $password           = "";
+public $accessToken        = "";
+public $accessTokenExpiry  = null;
+public $refreshToken       = "";
+public $refreshTokenExpiry = null;
+~
+
+~source/php/base/WebAPI.php~
+function __construct( $_apihost, $username, $password )
+{
+    $pw_len = strlen( $password );
+
+    //\base\Status( "APIHost: $_apihost; UserName: $username; Password length: $pw_len characters" );
+
+    $this->apihost  = $_apihost;
+    $this->username = $username;
+    $this->password = $password;
+}
+
+~source/php/base/WebAPI.php~
+function login()
+{
+    $endpoint   = "/v1/Authenticate/Login/";
+    $parameters =
+    [
+        "UserName" => $this->username,
+        "Password" => $this->password
+    ];
+
+    $params  = EncodeParameters( $parameters );
+    $empty   = array();
+    $json    = \base\Call( "POST", $this->apihost, $endpoint . "?" . $params, $empty );
+
+    \base\Status( "Calling /v1/Authenticate/Login/" );
+
+    if ( ! $json )
+    {
+        \base\Error( "WebAPI - null returned" );
+
+        return false;
+    }
+    else
+    {
+        $this->updateTokens( json_decode( $json ) );
+
+        return true;
+    }
+}
+~
+
+~source/php/base/WebAPI.php~
+function refreshToken()
+{
+    if ( "" == $this->accessToken )
+    {
+        $this->login();
+    }
+
+    if ( "" != $this->accessToken )
+    {
+        $now = new \DateTimeImmutable();
+
+        if ( $this->accessTokenExpiry <= $now )
+        {
+            $endpoint   = "/v1/Authenticate/RefreshToken/";
+            $parameters =
+            [
+                "AccessToken"  => $this->accessToken,
+                "RefreshToken" => $this->refreshToken
+            ];
+
+            $params = EncodeParameters( $parameters );
+            $empty  = array();
+            $json   = \base\Call( "POST", $this->apihost, $endpoint . "?" . $params, $empty );
+
+            \base\Status( "Calling /v1/Authenticate/RefreshToken/" );
+
+            if ( ! $json )
+            {
+                \base\Error( "WebAPI - null returned" );
+
+                $this->accessToken        = "";
+            }
+            else
+            {
+                $this->updateTokens( json_decode( $json ) );
+            }
+        }
+    }
+
+    return ("" != $this->accessToken);
+}
+~
+
+~source/php/base/WebAPI.php~
+function updateTokens( $obj )
+{
+    if ( !$obj )
+    {
+        \base\Error( "WebAPI - invalid return" );
+    }
+    else
+    {
+        $this->accessToken        = $obj->accessToken;
+        $this->refreshToken       = $obj->refreshToken;
+        $this->accessTokenExpiry  = \DateTimeImmutable::createFromFormat( \DateTimeInterface::ATOM, $obj->accessTokenExpiry  );
+        $this->refreshTokenExpiry = \DateTimeImmutable::createFromFormat( \DateTimeInterface::ATOM, $obj->refreshTokenExpiry );
+    }
+}
+~
+
+~source/php/base/WebAPI.php~
+function call( $method, $endpoint, $body )
+{
+    $this->refreshToken();
+
+    //$this->apihost = "api.optimus.orcoda.dev.test";
+
+    $headers["Accept"         ] = "application/json";
+    $headers["Content-Type"   ] = "application/json";
+    $headers["Authorization"  ] = "Bearer " . $this->accessToken;
+    $headers["Accept-Encoding"] = "gzip, defalte, br";
+    $headers["Connection"     ] = "close";
+
+    $error   = false;
+    $context = CreateStreamContext( $method, $this->apihost, $body, $headers );
+    $json    = file_get_contents( "https://" . $this->apihost . $endpoint, false, $context );
+
+    if ( "HTTP/1.1 200 OK" != $http_response_header[0] )
+    {
+        Status( "Response: " . $http_response_header[0] );
+
+        $error = true;
+    }
+
+    if ( ! StringContains( $http_response_header[0], "20" ) )
+    {
+        \base\Error( "JSON: " . $json );
+
+        $error = true;
+    }
+
+    if ( ! $json )
+    {
+        \base\Error( "WebAPI - null returned" );
+
+        $error = true;
+    }
+    else
+    {
+        $obj = json_decode( $json );
+
+        if ( ! $obj )
+        {
+            \base\Error( "WebAPI - invalid return from: $endpoint?" . EncodeParameters( $parameters ) );
+
+            $error = TRUE;
+        }
+        else
+        if ( StringContains( $obj->status, "Error" ) )
+        {
+            if
+            (
+                StringContains( $json, "is not allocated" )
+                ||
+                StringContains( $json, "fully allocated"  )
+                ||
+                StringContains( $json, "already complete" )
+                ||
+                StringContains( $json, "be in the future" )
+                ||
+                StringContains( $json, "GIS.Com.Data.Bra" )
+                ||
+                StringContains( $json, "Delivery Job"     )
+                ||
+                StringContains( $json, "TTConnote record" )
+                ||
+                StringContains( $json, "not found" )
+            )
+            {
+                \base\Status( "S2 Ignored: " . $json );
+
+                $error = FALSE;
+            }
+            else
+            {
+                \base\Error( "S2 Response: " . $json );
+
+                $error = TRUE;
+            }
+        }
+        else
+        {
+            if ( property_exists( $obj, "errors" ) && (0 == count( $obj->errors )) )
+            {
+                unset( $obj->errors );
+            }
+
+            Status( "S2 Response: " . json_encode( $obj ) );
+        }
+    }
+
+    return $error ? FALSE : $json;
+}
+~
+
+~source/php/base/WebAPI.php~
+function callForm( $method, $apihost, $endpoint, $parameters )
+{
+    $params = EncodeParameters( $parameters );
+
+    $this->refreshToken();
+
+    $headers["Accept"         ] = "application/json";
+    $headers["Content-Type"   ] = "application/x-www-form-urlencoded";
+    $headers["Authorization"  ] = "Bearer " . $this->accessToken;
+    $headers["Accept-Encoding"] = "gzip, defalte, br";
+    $headers["Connection"     ] = "close";
+
+    $error   = false;
+    $context = CreateStreamContext( $method, $apihost, $params, $headers );
+    $json    = file_get_contents( "https://" . $apihost . $endpoint, false, $context );
+
+    if ( "HTTP/1.1 200 OK" != $http_response_header[0] )
+    {
+        Status( "Response: " . $http_response_header[0] );
+
+        $error = true;
+    }
+
+    if ( ! StringContains( $http_response_header[0], "20" ) )
+    {
+        \base\Error( "JSON: " . $json );
+
+        $error = true;
+    }
+
+    if ( ! $json )
+    {
+        \base\Error( "WebAPI - null returned" );
+
+        $error = true;
+    }
+    else
+    {
+        $obj = json_decode( $json );
+
+        if ( ! $obj )
+        {
+            \base\Error( "WebAPI - invalid return from: $endpoint?" . EncodeParameters( $parameters ) );
+
+            $error = TRUE;
+        }
+        else
+        {
+            if ( property_exists( $obj, "errors" ) && (0 == count( $obj->errors )) )
+            {
+                unset( $obj->errors );
+            }
+
+            Status( "S2 Response: " . json_encode( $obj ) );
+        }
+    }
+
+    return $error ? FALSE : $json;
+}
+~
+
+~source/php/base/WebAPI.php~
+}
+~
